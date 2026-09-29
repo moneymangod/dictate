@@ -15,11 +15,13 @@ from .hotkey import RightShift
 from .inserter import paste
 from .overlay import EdgeGlow
 from .recorder import MicError, Recorder
+from .target import init_uia, textbox_rect
 from .transcriber import DATA_DIR, MAX_SECONDS, MIN_SECONDS, SAMPLE_RATE, Transcriber, too_short
 from .window import MainWindow
 
 log = logging.getLogger("dictate")
 TRAY_COLORS = {"idle": "#7c6ce0", "listening": "#22d3c5", "error": "#fb464c"}
+TARGET_WAIT_MS = 30  # How long the glow waits for the focused textbox before starting around the window.
 
 
 def make_icon(color: str) -> QIcon:
@@ -47,6 +49,7 @@ class App(QObject):
     _model_loaded = Signal(str)  # "" when ready, else the error
     _mic_failed = Signal(str)
     _finished = Signal(str, str)  # kind ("text" | "empty" | "error"), payload
+    _target_found = Signal(int, object)  # press id, textbox rect or None
 
     def __init__(self, qapp: QApplication):
         super().__init__()
@@ -55,6 +58,7 @@ class App(QObject):
         self.transcriber = Transcriber()
         self.audio = ThreadPoolExecutor(1, thread_name_prefix="audio")  # mic open/close, in order
         self.work = ThreadPoolExecutor(1, thread_name_prefix="transcribe")  # transcriptions, in order
+        self.focus = ThreadPoolExecutor(1, thread_name_prefix="focus", initializer=init_uia)  # UI Automation lives here
         self.glow = EdgeGlow(lambda: min(1.0, self.recorder.level * 8))
         self.icons = {name: make_icon(color) for name, color in TRAY_COLORS.items()}
         self.window = MainWindow(self.icons["idle"])
@@ -77,10 +81,13 @@ class App(QObject):
         self._model_loaded.connect(self._on_model_loaded)
         self._mic_failed.connect(self._on_mic_failed)
         self._finished.connect(self._on_finished)
+        self._target_found.connect(self._on_target)
 
         self._load_error = ""
         self._holding = False
         self._pressed_at = 0.0
+        self._press_id = 0
+        self._targeted = False
         self._pending = 0
 
     def start(self, hidden: bool) -> None:
@@ -88,6 +95,7 @@ class App(QObject):
         if not hidden:
             self._open()
         self.hotkey.start()
+        self.focus.submit(lambda: None)  # starts UI Automation now so the first press isn't slow
         threading.Thread(target=self._load_model, daemon=True).start()
 
     # Model --------------------------------------------------------------
@@ -119,10 +127,28 @@ class App(QObject):
             return
         self._holding = True
         self._pressed_at = time.monotonic()
-        self.glow.listen()
+        self._find_target()
         self._set_state("listening")
         self.audio.submit(self._open_mic)
         self._cap.start()
+
+    def _find_target(self) -> None:
+        """Glows around the focused textbox. UI Automation can take 100 ms or more in some apps, so the
+        glow starts around the window after a short wait and moves to the textbox if it turns up later."""
+        self._press_id += 1
+        self._targeted = False
+        press = self._press_id
+        self.focus.submit(textbox_rect).add_done_callback(lambda done: self._target_found.emit(press, done.result()))
+        QTimer.singleShot(TARGET_WAIT_MS, lambda: self._on_target(press, None))
+
+    def _on_target(self, press: int, rect) -> None:
+        if press != self._press_id or not self._holding:
+            return
+        if not self._targeted:  # first answer: the textbox, or nothing (window)
+            self._targeted = True
+            self.glow.listen(rect)
+        elif rect:  # the textbox arrived after the glow started around the window
+            self.glow.retarget(rect)
 
     def _open_mic(self) -> None:
         try:

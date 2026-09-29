@@ -14,8 +14,9 @@ To have it start by itself, hidden in the tray, whenever you log in: run **`star
 
 - Recording starts the moment Right Shift goes down. Holds under 300 ms are ignored, so Shift+letter typing is unaffected.
 - The mic opens only while the key is held. Recordings are capped at 120 s.
-- The screen edges glow while listening (following your voice), shimmer while transcribing, and flash when text is pasted.
-  A red pulse means an error; the reason appears in the window and as a tray notification.
+- A neon glow rings the focused textbox while listening (it reaches further as you speak louder), shimmers while
+  transcribing, and flashes when text is pasted. If the app doesn't expose its textbox to Windows UI Automation, the glow
+  surrounds the active window instead. A red pulse means an error; the reason appears in the window and as a tray notification.
 - Pasting uses the clipboard. Your previous clipboard contents are restored 250 ms later.
 - The window shows the last 20 transcriptions (kept in memory only) with Copy buttons.
 
@@ -38,4 +39,7 @@ Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dicta
   rejected as silence but can occasionally produce a stray word.
 - If a transcription finishes while you're already holding Right Shift for the next one, the paste is sent as
   Ctrl+Shift+V (paste as plain text in most apps).
+- Finding the textbox asks Windows UI Automation, which takes 100 ms or more in some apps. The glow starts around the window
+  and slides onto the textbox once it is found. Chrome and Electron apps switch on their accessibility tree when asked,
+  which can use a little extra CPU in them.
 - Clipboard managers will see each dictation as a new clipboard entry.
