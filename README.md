@@ -1,11 +1,13 @@
 # Dictate
 
 Hold **Right Shift** and speak; release it and the text is pasted into whatever textbox has focus.
-Speech is transcribed on this PC with Whisper (`faster-whisper`, `base.en`, CPU int8). No audio leaves the machine.
+Speech is transcribed by Groq's Whisper API (`whisper-large-v3-turbo`; `distil-whisper-large-v3-en` has been decommissioned by Groq).
+Each recording is uploaded to Groq, so you need an internet connection.
 
 ## Run
 
-Double-click **`run.bat`**. The first run creates `.venv`, installs dependencies and downloads the model (~140 MB).
+Double-click **`run.bat`**. The first run creates `.venv`, installs dependencies.
+Put your Groq API key in the `GROQ_API_KEY` environment variable or in `%LOCALAPPDATA%\Dictate\groq_key.txt`.
 Dictate then lives in the system tray: left-click opens the window, right-click → Quit.
 
 To have it start by itself, hidden in the tray, whenever you log in: run **`startup.bat`** (undo with `startup.bat off`).
@@ -20,14 +22,13 @@ To have it start by itself, hidden in the tray, whenever you log in: run **`star
 - Pasting uses the clipboard. Your previous clipboard contents are restored 250 ms later.
 - The window shows the last 20 transcriptions (kept in memory only) with Copy buttons.
 
-Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dictate\dictate.log`; the model is in
-`%LOCALAPPDATA%\Dictate\models`.
+Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dictate\dictate.log`.
 
 ## Develop
 
 ```
 .venv\Scripts\python.exe -m pytest              # unit tests
-.venv\Scripts\python.exe scripts\selftest.py    # Windows TTS says a phrase, Whisper transcribes it (no mic needed)
+.venv\Scripts\python.exe scripts\selftest.py    # Windows TTS says a phrase, Groq transcribes it (no mic needed)
 .venv\Scripts\python.exe -m dictate             # run with a console
 ```
 

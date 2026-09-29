@@ -129,3 +129,39 @@ def test_error_pulses_red_then_hides(qapp):
     assert px[..., 2].mean() > px[..., 0].mean() and px[..., 2].mean() > px[..., 1].mean()  # red dominates
     run(glow, 1.5)
     assert glow._state == "hidden"
+
+
+def test_rim_draws_itself_on_from_the_top_edge(qapp):
+    glow = EdgeGlow(lambda: 0.0)
+    glow.listen(TEXTBOX_RECT)
+    run(glow, 0.1)
+    top, bottom = alpha(glow, "top"), alpha(glow, "bottom")
+    middle = top.shape[1] // 2
+    border = int(TEXTBOX.out * SCALE)
+    assert top[border, middle] > 100 and bottom[:, bottom.shape[1] // 2].max() < 5  # only the top so far
+    run(glow, 0.6)
+    assert alpha(glow, "bottom")[:, bottom.shape[1] // 2].max() > 100  # then all the way round
+
+
+def test_loud_speech_sends_ripples_outward(qapp):
+    glow = EdgeGlow(lambda: 0.9)
+    glow.listen(TEXTBOX_RECT)
+    run(glow, 0.9)
+    assert glow._ripples
+    steady = EdgeGlow(lambda: 0.0)
+    steady.listen(TEXTBOX_RECT)
+    run(steady, 0.9)
+    assert not steady._ripples
+
+
+def test_done_sends_a_shockwave(qapp):
+    glow = EdgeGlow(lambda: 0.5)
+    glow.listen(TEXTBOX_RECT)
+    run(glow, 0.6)
+    glow.transcribing()
+    run(glow, 0.3)
+    glow.done()
+    assert glow._ripples[-1].life > 0.5
+    run(glow, 0.1)
+    top = alpha(glow, "top")
+    assert top[: int(TEXTBOX.out * SCALE) - 8, top.shape[1] // 2].max() > 60  # a ring well outside the border

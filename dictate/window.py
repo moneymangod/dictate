@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
 
 MAX_RECENT = 20
 STATES = {
-    "downloading": ("Downloading model…", "#e9973f"),
     "loading": ("Loading model…", "#e9973f"),
     "ready": ("Ready", "#4caf50"),
     "listening": ("Listening", "#7c6ce0"),

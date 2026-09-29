@@ -45,7 +45,6 @@ def make_icon(color: str) -> QIcon:
 
 class App(QObject):
     # Worker threads report back through these; Qt delivers them on the main thread.
-    _model_downloading = Signal()
     _model_loaded = Signal(str)  # "" when ready, else the error
     _mic_failed = Signal(str)
     _finished = Signal(str, str)  # kind ("text" | "empty" | "error"), payload
@@ -77,7 +76,6 @@ class App(QObject):
         self._cap = QTimer(interval=250)
         self._cap.timeout.connect(self._check_cap)
 
-        self._model_downloading.connect(lambda: self.window.set_status("downloading"))
         self._model_loaded.connect(self._on_model_loaded)
         self._mic_failed.connect(self._on_mic_failed)
         self._finished.connect(self._on_finished)
@@ -103,12 +101,12 @@ class App(QObject):
     def _load_model(self) -> None:
         started = time.perf_counter()
         try:
-            self.transcriber.load(on_download=self._model_downloading.emit)
-            log.info("model loaded in %.1f s", time.perf_counter() - started)
+            self.transcriber.load()
+            log.info("transcriber ready in %.1f s", time.perf_counter() - started)
             self._model_loaded.emit("")
         except Exception as err:
             log.exception("model load failed")
-            self._model_loaded.emit(f"Could not load the Whisper model: {err}")
+            self._model_loaded.emit(f"Could not start transcription: {err}")
 
     def _on_model_loaded(self, error: str) -> None:
         self._load_error = error
@@ -123,7 +121,7 @@ class App(QObject):
         if self._holding:
             return
         if not self.transcriber.ready:
-            self._fail(self._load_error or "Model still loading")
+            self._fail(self._load_error or "Still connecting to Groq")
             return
         self._holding = True
         self._pressed_at = time.monotonic()

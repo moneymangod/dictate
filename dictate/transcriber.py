@@ -1,7 +1,10 @@
-"""Local Whisper speech-to-text (faster-whisper). Silence gate and cleanup ported from jarvis's whisper.ts."""
+"""Speech-to-text through Groq's Whisper API. Silence gate and cleanup ported from jarvis's whisper.ts."""
+import io
 import os
 import re
+import wave
 
+import httpx
 import numpy as np
 
 SAMPLE_RATE = 16_000
@@ -9,7 +12,9 @@ MIN_SECONDS = 0.3  # Shorter holds are normal Shift+letter presses.
 MAX_SECONDS = 120
 SILENCE_RMS = 0.002
 DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Dictate")
-MODEL_DIR = os.path.join(DATA_DIR, "models")
+KEY_FILE = os.path.join(DATA_DIR, "groq_key.txt")
+BASE_URL = "https://api.groq.com/openai/v1"
+MODEL = "whisper-large-v3-turbo"  # Groq has decommissioned distil-whisper-large-v3-en.
 
 
 def rms(pcm: np.ndarray) -> float:
@@ -33,43 +38,65 @@ def resample(pcm: np.ndarray, rate: int) -> np.ndarray:
     return np.interp(np.linspace(0, pcm.size - 1, n), np.arange(pcm.size), pcm).astype(np.float32)
 
 
+def api_key() -> str:
+    """The Groq API key: GROQ_API_KEY, else the first line of KEY_FILE."""
+    if key := os.environ.get("GROQ_API_KEY", "").strip():
+        return key
+    try:
+        with open(KEY_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def wav_bytes(pcm: np.ndarray) -> bytes:
+    """Mono 16 kHz float PCM as a 16-bit WAV file."""
+    out = io.BytesIO()
+    with wave.open(out, "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(SAMPLE_RATE)
+        f.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
+    return out.getvalue()
+
+
 class Transcriber:
-    def __init__(self, model: str = "base.en", threads: int = 4):
+    def __init__(self, model: str = MODEL, base_url: str = BASE_URL, transport: httpx.BaseTransport | None = None):
         self.model_name = model
-        self.threads = threads
-        self._model = None
+        self._base_url = base_url
+        self._transport = transport
+        self._client: httpx.Client | None = None
 
-    def load(self, on_download=lambda: None) -> None:
-        """Loads the model (downloading it once), then warms it up so the first dictation is fast."""
-        from faster_whisper import WhisperModel
-
-        opts = dict(device="cpu", compute_type="int8", cpu_threads=self.threads, download_root=MODEL_DIR)
+    def load(self) -> None:
+        """Reads the API key and opens the connection early so the first dictation skips the TLS handshake."""
+        key = api_key()
+        if not key:
+            raise RuntimeError(f"No Groq API key. Set GROQ_API_KEY or put the key in {KEY_FILE}")
+        self._client = httpx.Client(
+            base_url=self._base_url, headers={"Authorization": f"Bearer {key}"}, timeout=30, transport=self._transport
+        )
         try:
-            model = WhisperModel(self.model_name, local_files_only=True, **opts)
-        except Exception:
-            on_download()
-            model = WhisperModel(self.model_name, **opts)
-        self._run(model, np.zeros(SAMPLE_RATE, dtype=np.float32))
-        self._model = model
+            self._client.get("/models")
+        except httpx.HTTPError:  # Offline right now; dictating will report it.
+            pass
 
     @property
     def ready(self) -> bool:
-        return self._model is not None
+        return self._client is not None
 
     def transcribe(self, pcm: np.ndarray) -> str:
         """Mono 16 kHz float PCM in, cleaned text out ("" for silence)."""
         if rms(pcm) < SILENCE_RMS:
             return ""
-        return clean_transcript(self._run(self._model, pcm))
-
-    @staticmethod
-    def _run(model, pcm: np.ndarray) -> str:
-        segments, _ = model.transcribe(
-            pcm,
-            language="en",
-            beam_size=1,
-            condition_on_previous_text=False,
-            without_timestamps=True,
-            vad_filter=False,
+        response = self._client.post(
+            "/audio/transcriptions",
+            files={"file": ("speech.wav", wav_bytes(pcm), "audio/wav")},
+            data={"model": self.model_name, "language": "en", "temperature": "0"},
         )
-        return " ".join(s.text for s in segments)
+        if response.is_error:
+            try:
+                detail = response.json()["error"]["message"]
+            except Exception:
+                detail = response.text[:200]
+            raise RuntimeError(f"Groq {response.status_code}: {detail}")
+        return clean_transcript(response.json()["text"])

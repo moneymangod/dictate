@@ -2,8 +2,9 @@
 focused textbox or, failing that, the active window. They never take focus.
 
 Each frame is rendered with numpy at half resolution (the glow is soft, so it upscales cleanly):
-a thin bright rim on the rectangle's border plus a colored bloom around it. While listening the
-bloom follows your voice in uneven waves; while transcribing two comets chase around the border.
+a thin bright rim on the rectangle's border plus a colored bloom around it. The rim draws itself on
+from the top edge, the bloom follows your voice in uneven waves and sends out a ripple on each loud
+syllable, two comets chase around the border while transcribing, and a shockwave marks the paste.
 The animation timer only runs while the glow is visible."""
 import math
 import time
@@ -22,6 +23,15 @@ CYAN = np.array([0x22, 0xD3, 0xC5], np.float32) / 255
 SCALE = 0.5  # Render resolution relative to screen pixels.
 LUT = 1024  # Perimeter samples; per-frame shading is computed on these, then looked up per pixel.
 SIDES = ("top", "right", "bottom", "left")
+DRAW_ON = 0.6  # The rim's draw-on reveal reaches this distance (in perimeters) from the top edge's middle: all of it.
+RIPPLE_LEVEL, RIPPLE_GAP = 0.3, 0.3  # Voice level and minimum seconds between ripples.
+
+
+class Ripple(NamedTuple):
+    born: float
+    color: object  # BGR-ordered premultiplied pixel, or None to use the border's own colors
+    life: float  # seconds
+    strength: float
 
 
 class Look(NamedTuple):
@@ -89,6 +99,8 @@ class _Field:
         self.rim_at = np.flatnonzero(rim > 0.004)
         self.rim = rim[self.rim_at].astype(np.float32)[:, None]
         self.rim_idx = self.idx.ravel()[self.rim_at]
+        # Distance from the border on the side the glow spreads to (ripples travel that way); far away on the other.
+        self.reach = np.where((sd > 0) == (look.out > 0), np.abs(sd), 1e3).astype(np.float32)
 
 
 class _Strip(QWidget):
@@ -128,6 +140,9 @@ class EdgeGlow:
         self._look = WINDOW
         self._max_depth = 1.0
         self._next = None  # Textbox found after the glow started around the window.
+        self._ripples: list[Ripple] = []
+        self._rippled_at = 0.0
+        self._origin = 0.0  # Perimeter position of the top edge's middle, where the draw-on starts.
         self._fields: dict[str, _Field] = {}
         self._along = (np.arange(LUT, dtype=np.float32) + 0.5) / LUT
         self._buffers: dict[str, np.ndarray] = {}
@@ -138,7 +153,8 @@ class EdgeGlow:
     def _reset(self) -> None:
         # Blooms in from the border: starts invisible and pulled in tight.
         self._alpha, self._spread, self._level = 0.0, 0.2, 0.0
-        self._band = self._head = self._tint = 0.0
+        self._band = self._head = self._tint = self._reveal = 0.0
+        self._ripples = []
         self._tint_color = CYAN
 
     # States ---------------------------------------------------------------
@@ -160,6 +176,7 @@ class EdgeGlow:
     def done(self) -> None:
         if self._state not in ("hidden", "error"):
             self._set("done")
+            self._ripples.append(Ripple(self._last, np.array([CYAN[2], CYAN[1], CYAN[0], 1.0], np.float32), 0.6, 1.4))
 
     def discard(self) -> None:
         if self._state not in ("hidden", "error"):  # never cut an error pulse short
@@ -190,6 +207,8 @@ class EdgeGlow:
         look = TEXTBOX if rect and min(target.width(), target.height()) >= MIN_SIZE else WINDOW
         self._look, self._max_depth = look, max(look.out, look.inn) / 2.8  # Keeps the bloom inside its strips.
         w, h = target.width(), target.height()
+        self._origin = (w / 2) / (2 * (w + h))
+        self._reveal = 0.0
         frame = _frame(w, h, look)
         self._fields = {side: _Field(strip, w, h, look) for side, strip in frame.items()}
         for side, strip in frame.items():
@@ -214,6 +233,11 @@ class EdgeGlow:
 
         # Fast attack, slower release, like a VU meter.
         level = self._level_fn() if state == "listening" else 0.0
+        self._reveal = min(DRAW_ON, self._reveal + dt * 1.4)
+        if level > RIPPLE_LEVEL and now - self._rippled_at > RIPPLE_GAP and self._alpha > 0.5:
+            self._rippled_at = now
+            self._ripples.append(Ripple(now, None, 0.85, 1.5 * level))
+        self._ripples = [rp for rp in self._ripples if now - rp.born < rp.life]
         self._level = ease(self._level, level, 22 if level > self._level else 5)
 
         if state == "listening":
@@ -265,7 +289,7 @@ class EdgeGlow:
         energy = max(self._level, breath) if self._state == "listening" else self._level
 
         # Colors drift slowly around the border.
-        u = (a + now * 0.05) % 1.0 * len(PALETTE)
+        u = (a + now * 0.1) % 1.0 * len(PALETTE)
         i = u.astype(np.int32)
         f = (u - i)[:, None]
         color = PALETTE[i] * (1 - f) + PALETTE[(i + 1) % len(PALETTE)] * f
@@ -281,8 +305,14 @@ class EdgeGlow:
                 behind = (head - a) % 1.0
                 comet += np.exp(-behind / 0.1) + np.exp(-(((1.0 - behind) / 0.02) ** 2))  # tail + soft head
             comet *= self._band
+        # The rim draws itself on from the top edge's middle, both ways round, with a hot leading edge.
+        away = np.abs(a - self._origin)
+        away = np.minimum(away, 1.0 - away)
+        if self._reveal < DRAW_ON:
+            comet = comet + 1.3 * np.exp(-(((self._reveal - away) / 0.03) ** 2))
+        drawn = np.clip((self._reveal - away) / 0.1, 0.0, 1.0)
         depth = np.clip(depth * (1 + 1.2 * comet), 1.0, self._max_depth)
-        strength = 1 - 0.45 * self._band + 1.1 * comet
+        strength = (1 - 0.45 * self._band + 1.1 * comet) * drawn
 
         color = color * (1 - 0.35 * comet[:, None]) + 0.35 * comet[:, None]  # comet heads run hot
         if self._tint > 0.001:
@@ -294,11 +324,22 @@ class EdgeGlow:
         bloom_lut *= (255 * 0.9 * self._alpha * strength)[:, None]
         rim_lut = np.empty((LUT, 4), np.float32)
         rim_lut[:, 2::-1], rim_lut[:, 3] = color * 0.7 + 0.3, 1.0  # tinted, not white: stays visible on light apps
-        rim_lut *= (255 * 0.9 * self._alpha * np.minimum(strength, 1.0))[:, None]
+        rim_lut *= (255 * 0.9 * self._alpha * np.minimum(strength, 1.0) * (1 + 0.6 * comet))[:, None]
+
+        reach = 0.85 * max(self._look.out, self._look.inn)
+        rings = []
+        for rp in self._ripples:  # Each ripple is a thin ring that travels away from the border and fades.
+            x = (now - rp.born) / rp.life
+            fade = rp.strength * (1 - x) ** 1.5
+            paint = rp.color * (255 * self._alpha * fade) if rp.color is not None else rim_lut * fade
+            rings.append((reach * (1 - (1 - x) ** 2), 2.5 + 5 * x, paint))
 
         for side, fd in self._fields.items():
             px = bloom_lut[fd.idx]
             px *= np.exp(-fd.d2 * inv_depth2[fd.idx])[..., None]
+            for radius, sigma, paint in rings:
+                ring = np.exp(-(((fd.reach - radius) / sigma) ** 2))[..., None]
+                px += ring * (paint[fd.idx] if paint.ndim == 2 else paint)
             flat = px.reshape(-1, 4)
             flat[fd.rim_at] += rim_lut[fd.rim_idx] * fd.rim
             np.minimum(px, 255, out=px)  # color <= 1, so clipped values stay valid premultiplied
