@@ -162,7 +162,7 @@ class MainWindow(QWidget):
         card_col.setContentsMargins(16, 14, 16, 14)
         card_col.addWidget(QLabel("Hold <b>Right Shift</b> to dictate · release to paste"))
         card_col.addWidget(
-            QLabel("Text goes into whatever textbox has focus. Speech is transcribed on this PC.", objectName="muted", wordWrap=True)
+            QLabel("Text goes into whatever textbox has focus. Speech is transcribed by Groq.", objectName="muted", wordWrap=True)
         )
         root.addWidget(card)
 

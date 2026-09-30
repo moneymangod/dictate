@@ -3,19 +3,15 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QRect
 from PySide6.QtWidgets import QApplication
 
 from dictate import overlay
-from dictate.overlay import SCALE, TEXTBOX, WINDOW, EdgeGlow
-
-WINDOW_RECT = (0, 0, 640, 480)  # stands in for the active window (the offscreen screen is 800x600)
-TEXTBOX_RECT = (200, 200, 600, 260)
+from dictate.overlay import DEPTH, SCALE, EdgeGlow
 
 
 @pytest.fixture(autouse=True)
 def fixed_window(monkeypatch):
-    monkeypatch.setattr(overlay, "foreground_rect", lambda: WINDOW_RECT)
+    monkeypatch.setattr(overlay, "foreground_rect", lambda: (0, 0, 640, 480))  # somewhere on the (offscreen) screen
 
 
 @pytest.fixture(scope="module")
@@ -34,11 +30,13 @@ def alpha(glow: EdgeGlow, side: str):
     return glow._buffers[side][..., 3]
 
 
-def test_window_glow_is_valid_premultiplied_and_hugs_the_border(qapp):
+def test_glow_frames_the_screen_and_hugs_its_border(qapp):
     glow = EdgeGlow(lambda: 0.8)
     glow.listen()
-    run(glow, 0.6)
-    assert glow._look is WINDOW
+    run(glow, 1.0)
+    screen = qapp.primaryScreen().geometry()
+    assert glow._strips["top"].geometry().width() == screen.width() and glow._strips["left"].geometry().x() == 0
+    assert glow._strips["bottom"].geometry().bottom() == screen.bottom()
     for side, buf in glow._buffers.items():
         assert (buf[..., :3] <= buf[..., 3:]).all(), f"{side}: color exceeds alpha (invalid premultiplied)"
     top, right = alpha(glow, "top"), alpha(glow, "right")
@@ -46,27 +44,10 @@ def test_window_glow_is_valid_premultiplied_and_hugs_the_border(qapp):
     assert right[:, -1].mean() > 100 and right[:, -1].mean() > 3 * right[:, 0].mean()
 
 
-def test_textbox_glow_is_a_halo_that_leaves_the_text_alone(qapp):
-    glow = EdgeGlow(lambda: 0.8)
-    glow.listen(TEXTBOX_RECT)
-    run(glow, 0.6)
-    left, top, right, bottom = TEXTBOX_RECT
-    assert glow._look is TEXTBOX
-    assert glow._strips["top"].geometry() == QRect(left - TEXTBOX.out, top - TEXTBOX.out, right - left + 2 * TEXTBOX.out, TEXTBOX.out + TEXTBOX.inn)
-    assert glow._strips["bottom"].geometry().bottom() + 1 == bottom + TEXTBOX.out
-
-    top = alpha(glow, "top")
-    middle = top[:, top.shape[1] // 2]  # down through the middle of the box's top border
-    border = int(TEXTBOX.out * SCALE)  # the row on the border
-    assert middle[border - 2 : border + 2].max() > 150  # bright rim on the border
-    assert middle[0] < 5  # nothing far outside
-    assert middle[border - 4] > 3 * middle[border + 4]  # 8 px out is much brighter than 8 px in, where the text is
-
-
-def test_louder_voice_reaches_further_out(qapp):
+def test_louder_voice_reaches_further_in(qapp):
     def reach(level: float) -> int:
         glow = EdgeGlow(lambda: level)
-        glow.listen(TEXTBOX_RECT)
+        glow.listen()
         run(glow, 0.8)
         top = alpha(glow, "top")
         return int((top[:, top.shape[1] // 2] > 20).sum())
@@ -74,47 +55,34 @@ def test_louder_voice_reaches_further_out(qapp):
     assert reach(1.0) > reach(0.0)
 
 
-def test_glow_moves_onto_a_textbox_found_after_it_started(qapp):
+def test_rim_draws_itself_on_from_the_top_edge(qapp):
+    glow = EdgeGlow(lambda: 0.0)
+    glow.listen()
+    run(glow, 0.1)
+    bottom = alpha(glow, "bottom")
+    assert alpha(glow, "top")[0, alpha(glow, "top").shape[1] // 2] > 100  # the top's middle is lit first
+    assert bottom[-1, bottom.shape[1] // 2] < 5  # the bottom's middle is not yet
+    run(glow, 0.6)
+    assert alpha(glow, "bottom")[-1, bottom.shape[1] // 2] > 100  # then all the way round
+
+
+def test_done_sweeps_a_ring_inward_then_hides(qapp):
     glow = EdgeGlow(lambda: 0.5)
     glow.listen()
-    run(glow, 0.3)
-    assert glow._look is WINDOW
-    glow.retarget(TEXTBOX_RECT)
-    run(glow, 0.5)
-    assert glow._look is TEXTBOX and glow._alpha > 0.9  # crossfaded onto the box and faded back in
-    assert glow._strips["top"].geometry().left() == TEXTBOX_RECT[0] - TEXTBOX.out
-
-
-def test_late_textbox_is_ignored_once_transcribing(qapp):
-    glow = EdgeGlow(lambda: 0.5)
-    glow.listen()
-    run(glow, 0.3)
-    glow.transcribing()
-    glow.retarget(TEXTBOX_RECT)
-    run(glow, 0.5)
-    assert glow._look is WINDOW
-
-
-def test_tiny_rectangle_is_not_treated_as_a_textbox(qapp):
-    glow = EdgeGlow(lambda: 0.5)
-    glow.listen((10, 10, 15, 15))
-    assert glow._look is WINDOW
-
-
-def test_done_flashes_then_hides(qapp):
-    glow = EdgeGlow(lambda: 0.5)
-    glow.listen(TEXTBOX_RECT)
-    run(glow, 0.3)
+    run(glow, 0.6)
     glow.transcribing()
     run(glow, 0.3)
     glow.done()
+    run(glow, 0.35)
+    top = alpha(glow, "top")
+    assert top[int(DEPTH * SCALE * 0.5) :, top.shape[1] // 2].max() > 25  # a ring well inside, where the bloom no longer reaches
     run(glow, 1.5)
     assert glow._state == "hidden" and not glow._timer.isActive()
 
 
 def test_quick_press_fades_out_quietly(qapp):
     glow = EdgeGlow(lambda: 0.0)
-    glow.listen(TEXTBOX_RECT)
+    glow.listen()
     run(glow, 0.1)
     glow.discard()
     run(glow, 0.6)
@@ -129,39 +97,3 @@ def test_error_pulses_red_then_hides(qapp):
     assert px[..., 2].mean() > px[..., 0].mean() and px[..., 2].mean() > px[..., 1].mean()  # red dominates
     run(glow, 1.5)
     assert glow._state == "hidden"
-
-
-def test_rim_draws_itself_on_from_the_top_edge(qapp):
-    glow = EdgeGlow(lambda: 0.0)
-    glow.listen(TEXTBOX_RECT)
-    run(glow, 0.1)
-    top, bottom = alpha(glow, "top"), alpha(glow, "bottom")
-    middle = top.shape[1] // 2
-    border = int(TEXTBOX.out * SCALE)
-    assert top[border, middle] > 100 and bottom[:, bottom.shape[1] // 2].max() < 5  # only the top so far
-    run(glow, 0.6)
-    assert alpha(glow, "bottom")[:, bottom.shape[1] // 2].max() > 100  # then all the way round
-
-
-def test_loud_speech_sends_ripples_outward(qapp):
-    glow = EdgeGlow(lambda: 0.9)
-    glow.listen(TEXTBOX_RECT)
-    run(glow, 0.9)
-    assert glow._ripples
-    steady = EdgeGlow(lambda: 0.0)
-    steady.listen(TEXTBOX_RECT)
-    run(steady, 0.9)
-    assert not steady._ripples
-
-
-def test_done_sends_a_shockwave(qapp):
-    glow = EdgeGlow(lambda: 0.5)
-    glow.listen(TEXTBOX_RECT)
-    run(glow, 0.6)
-    glow.transcribing()
-    run(glow, 0.3)
-    glow.done()
-    assert glow._ripples[-1].life > 0.5
-    run(glow, 0.1)
-    top = alpha(glow, "top")
-    assert top[: int(TEXTBOX.out * SCALE) - 8, top.shape[1] // 2].max() > 60  # a ring well outside the border
