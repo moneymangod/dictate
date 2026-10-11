@@ -71,6 +71,8 @@ class Transcriber:
         """Reads the API key and opens the connection early so the first dictation skips the TLS handshake."""
         key = api_key()
         if not key:
+            os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
+            open(KEY_FILE, "a").close()  # An empty file to paste the key into.
             raise RuntimeError(f"No Groq API key. Set GROQ_API_KEY or put the key in {KEY_FILE}")
         self._client = httpx.Client(
             base_url=self._base_url, headers={"Authorization": f"Bearer {key}"}, timeout=30, transport=self._transport

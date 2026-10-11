@@ -7,7 +7,8 @@ Each recording is uploaded to Groq, so you need an internet connection.
 ## Run
 
 Double-click **`run.bat`**. The first run creates `.venv`, installs dependencies.
-Put your Groq API key in the `GROQ_API_KEY` environment variable or in `%LOCALAPPDATA%\Dictate\groq_key.txt`.
+Put your Groq API key in the `GROQ_API_KEY` environment variable or in `%LOCALAPPDATA%\Dictate\groq_key.txt`
+(the first launch creates that file empty if it's missing; paste the key into it and restart).
 Dictate then lives in the system tray: left-click opens the window, right-click → Quit.
 
 To have it start by itself, hidden in the tray, whenever you log in: run **`startup.bat`** (undo with `startup.bat off`).

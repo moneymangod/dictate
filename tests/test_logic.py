@@ -74,6 +74,7 @@ def test_missing_key_is_reported(monkeypatch, tmp_path):
     monkeypatch.setattr("dictate.transcriber.KEY_FILE", str(tmp_path / "missing.txt"))
     with pytest.raises(RuntimeError, match="No Groq API key"):
         Transcriber().load()
+    assert (tmp_path / "missing.txt").read_text() == ""  # created empty, ready for the key
     (tmp_path / "key.txt").write_text("gsk_from_file\n")
     monkeypatch.setattr("dictate.transcriber.KEY_FILE", str(tmp_path / "key.txt"))
     assert api_key() == "gsk_from_file"
