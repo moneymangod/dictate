@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import numpy as np
 import pytest
@@ -87,3 +89,29 @@ def test_going_offline_at_startup_is_not_fatal(monkeypatch):
         raise httpx.ConnectError("no network")
 
     assert loaded(offline).ready
+
+
+def test_cleanup_sends_the_transcript_to_the_llm(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    seen = []
+
+    def handler(request):
+        if request.url.path.endswith("/chat/completions"):
+            seen.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": " Meet me at 7. "}}]})
+        return httpx.Response(200, json={})
+
+    assert loaded(handler).correct("Meet me at 8, no sorry, 7.") == "Meet me at 7."
+    body = seen[0]
+    assert body["model"] == "qwen/qwen3.8-27b"
+    assert body["messages"][-1]["content"] == "<transcript>Meet me at 8, no sorry, 7.</transcript>"
+
+
+def test_cleanup_failure_keeps_the_raw_transcript(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    assert loaded(lambda r: httpx.Response(500, json={})).correct("Hello world.") == "Hello world."
+
+    def offline(request):
+        raise httpx.ReadTimeout("slow")
+
+    assert loaded(offline).correct("Hello world.") == "Hello world."

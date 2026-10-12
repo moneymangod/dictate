@@ -1,5 +1,5 @@
 """Speech-to-text check without a microphone (ported from jarvis's stt-selftest.mjs):
-Windows text-to-speech says a phrase into a 16 kHz WAV, then the transcriber transcribes it.
+Windows text-to-speech says a phrase into a 16 kHz WAV, then the transcriber transcribes and cleans it up.
 
     .venv\\Scripts\\python.exe scripts\\selftest.py ["phrase"]
 """
@@ -41,3 +41,5 @@ for run in (1, 2, 3):
     started = time.perf_counter()
     text = transcriber.transcribe(pcm)
     print(f'Heard: "{text}" in {(time.perf_counter() - started) * 1000:.0f} ms (run {run})')
+started = time.perf_counter()
+print(f'Clean: "{transcriber.correct(text)}" in {(time.perf_counter() - started) * 1000:.0f} ms')

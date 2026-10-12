@@ -2,7 +2,10 @@
 
 Hold **Right Shift** and speak; release it and the text is pasted into whatever textbox has focus.
 Speech is transcribed by Groq's Whisper API (`whisper-large-v3-turbo`; `distil-whisper-large-v3-en` has been decommissioned by Groq).
-Each recording is uploaded to Groq, so you need an internet connection.
+The transcript then goes through a Groq-hosted LLM (`qwen/qwen3.8-27b`) that applies your self-corrections
+("meet me at 8, no sorry, 7" → "Meet me at 7."), drops fillers like "um", and fixes punctuation. If that step fails or
+takes over 5 s, the raw transcript is pasted instead. (Groq has decommissioned `llama3-8b-8192` and `llama-3.1-8b-instant`.)
+Each recording and its transcript are sent to Groq, so you need an internet connection.
 
 ## Run
 
@@ -29,7 +32,7 @@ Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dicta
 
 ```
 .venv\Scripts\python.exe -m pytest              # unit tests
-.venv\Scripts\python.exe scripts\selftest.py    # Windows TTS says a phrase, Groq transcribes it (no mic needed)
+.venv\Scripts\python.exe scripts\selftest.py    # Windows TTS says a phrase, Groq transcribes and cleans it (no mic needed)
 .venv\Scripts\python.exe -m dictate             # run with a console
 ```
 

@@ -1,4 +1,4 @@
-"""Dictate: hold Right Shift to record, release to transcribe locally and paste into the focused textbox."""
+"""Dictate: hold Right Shift to record, release to transcribe, clean up and paste into the focused textbox."""
 import logging
 import os
 import sys
@@ -179,6 +179,10 @@ class App(QObject):
                 (time.perf_counter() - started) * 1000,
                 len(text),
             )
+            if text:
+                started = time.perf_counter()
+                text = self.transcriber.correct(text)
+                log.info("cleaned up in %d ms (%d chars)", (time.perf_counter() - started) * 1000, len(text))
             self._finished.emit("text" if text else "empty", text)
         except Exception as err:
             log.exception("transcription failed")
