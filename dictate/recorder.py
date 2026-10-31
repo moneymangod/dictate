@@ -2,17 +2,18 @@
 import numpy as np
 import sounddevice as sd
 
+from .session import mic_settings_hint
 from .transcriber import SAMPLE_RATE, resample, rms
 
 
 def mic_error_message(err: Exception) -> str:
     text = str(err)
     if "-9996" in text or "Error querying device" in text:
-        return "No microphone found. Connect one and set it as the default input device in Windows."
+        return "No microphone found. Connect one and set it as the default input device."
     if "-9985" in text or "unavailable" in text.lower():
         return "The microphone is busy or unavailable (another app may be using it)."
     if "-9999" in text or "Unanticipated host error" in text:
-        return "Microphone access was denied. Allow microphone access in Windows Settings → Privacy & security → Microphone."
+        return f"Microphone access was denied. Allow microphone access in {mic_settings_hint()}."
     return f"Microphone error: {text}"
 
 

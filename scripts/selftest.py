@@ -1,7 +1,9 @@
 """Speech-to-text check without a microphone (ported from jarvis's stt-selftest.mjs):
-Windows text-to-speech says a phrase into a 16 kHz WAV, then the transcriber transcribes and cleans it up.
+Windows text-to-speech (or espeak-ng on Linux: sudo dnf install espeak-ng) says a phrase into a WAV, then the
+transcriber transcribes and cleans it up.
 
-    .venv\\Scripts\\python.exe scripts\\selftest.py ["phrase"]
+    .venv\\Scripts\\python.exe scripts\\selftest.py ["phrase"]      (Windows)
+    .venv/bin/python scripts/selftest.py ["phrase"]                 (Linux)
 """
 import os
 import subprocess
@@ -13,7 +15,8 @@ import wave
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from dictate.transcriber import SAMPLE_RATE, Transcriber  # noqa: E402
+from dictate.session import IS_WINDOWS  # noqa: E402
+from dictate.transcriber import SAMPLE_RATE, Transcriber, resample  # noqa: E402
 
 phrase = sys.argv[1] if len(sys.argv) > 1 else "Please send the quarterly report to Sarah before Friday afternoon."
 wav = os.path.join(tempfile.gettempdir(), f"dictate-selftest-{os.getpid()}.wav")
@@ -23,13 +26,18 @@ $f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, [System.S
 $s.SetOutputToWaveFile($env:DICTATE_WAV, $f)
 $s.Speak($env:DICTATE_TEXT)
 $s.Dispose()"""
-subprocess.run(
-    ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-    env={**os.environ, "DICTATE_WAV": wav, "DICTATE_TEXT": phrase},
-    check=True,
-)
+if IS_WINDOWS:
+    subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        env={**os.environ, "DICTATE_WAV": wav, "DICTATE_TEXT": phrase},
+        check=True,
+    )
+else:
+    subprocess.run(["espeak-ng", "-w", wav, phrase], check=True)
 with wave.open(wav) as f:
+    rate = f.getframerate()
     pcm = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16).astype(np.float32) / 32768
+pcm = resample(pcm, rate)
 os.remove(wav)
 
 print(f'Said:  "{phrase}" ({pcm.size / SAMPLE_RATE:.1f} s of audio)')

@@ -9,11 +9,13 @@ import wave
 import httpx
 import numpy as np
 
+from .session import data_dir
+
 SAMPLE_RATE = 16_000
 MIN_SECONDS = 0.3  # Shorter holds are normal Shift+letter presses.
 MAX_SECONDS = 120
 SILENCE_RMS = 0.002
-DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Dictate")
+DATA_DIR = data_dir()
 KEY_FILE = os.path.join(DATA_DIR, "groq_key.txt")
 BASE_URL = "https://api.groq.com/openai/v1"
 MODEL = "whisper-large-v3-turbo"  # Groq has decommissioned distil-whisper-large-v3-en.

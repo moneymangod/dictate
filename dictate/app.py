@@ -12,9 +12,10 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from .hotkey import RightShift
-from .inserter import paste
+from .inserter import paste, prepare
 from .overlay import EdgeGlow
 from .recorder import MicError, Recorder
+from .session import IS_WAYLAND, mic_settings_hint
 from .transcriber import DATA_DIR, MAX_SECONDS, MIN_SECONDS, SAMPLE_RATE, Transcriber, too_short
 from .voicebar import VoiceBar
 from .window import MainWindow
@@ -79,6 +80,7 @@ class App(QObject):
         self._finished.connect(self._on_finished)
 
         self._load_error = ""
+        self._setup_problem = ""
         self._holding = False
         self._pressed_at = 0.0
         self._pending = 0
@@ -87,7 +89,16 @@ class App(QObject):
         self.tray.show()
         if not hidden:
             self._open()
-        self.hotkey.start()
+        if IS_WAYLAND:
+            from .evdev_input import setup_problem
+
+            self._setup_problem = setup_problem()
+        try:
+            self.hotkey.start()
+        except Exception as err:
+            log.exception("hotkey failed")
+            self._setup_problem = self._setup_problem or f"Could not listen for Right Shift: {err}"
+        prepare()  # Wayland: create the virtual keyboard now so it is ready for the first paste
         threading.Thread(target=self._load_model, daemon=True).start()
 
     # Model --------------------------------------------------------------
@@ -106,6 +117,8 @@ class App(QObject):
         self._load_error = error
         if error:
             self._fail(error)
+        elif self._setup_problem:
+            self._fail(self._setup_problem)
         else:
             self._set_state("ready")
 
@@ -168,7 +181,7 @@ class App(QObject):
             if not np.any(pcm):
                 self._finished.emit(
                     "error",
-                    "The microphone sent no signal. Check Windows Settings → Privacy & security → Microphone.",
+                    f"The microphone sent no signal. Check {mic_settings_hint()}.",
                 )
                 return
             started = time.perf_counter()
@@ -194,7 +207,8 @@ class App(QObject):
             self._fail(payload)
             return
         if kind == "text":
-            paste(payload + " ")  # trailing space so back-to-back dictations don't run together
+            if not paste(payload + " "):  # trailing space so back-to-back dictations don't run together
+                self.tray.showMessage("Dictate", "Copied. Press Ctrl+V to paste.", QSystemTrayIcon.Information, 3000)
             self.window.add_transcript(payload)
         if self._holding:  # a new recording owns the glow now
             return
@@ -237,6 +251,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    if IS_WAYLAND:  # Wayland won't let a window place itself or stay on top; XWayland does, so overlays work
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     qapp = QApplication(sys.argv)
     qapp.setQuitOnLastWindowClosed(False)
     lock = QLockFile(os.path.join(DATA_DIR, "dictate.lock"))

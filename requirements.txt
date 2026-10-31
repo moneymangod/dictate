@@ -4,3 +4,4 @@ numpy==2.5.3
 pynput==1.8.2
 pytest==9.1.1
 sounddevice==0.5.6
+evdev==2.0.0; sys_platform == "linux"

@@ -25,7 +25,7 @@ STATES = {
 
 STYLE = """
 #root { background: #1e1e1e; }
-QLabel { color: #dcddde; font-family: 'Segoe UI'; font-size: 13px; }
+QLabel { color: #dcddde; font-family: 'Segoe UI', 'Noto Sans', 'Open Sans', sans-serif; font-size: 13px; }
 #title { font-size: 20px; font-weight: 600; }
 #muted, #time { color: #a1a1a1; }
 #time { font-size: 12px; }
@@ -34,7 +34,7 @@ QLabel { color: #dcddde; font-family: 'Segoe UI'; font-size: 13px; }
 #card, #item { background: #161616; border: 1px solid #2a2a2a; border-radius: 12px; }
 #pill { background: #222222; border: 1px solid #2a2a2a; border-radius: 13px; }
 QPushButton { background: #2a2a2a; color: #dcddde; border: 1px solid #2a2a2a; border-radius: 8px;
-              padding: 4px 12px; font-family: 'Segoe UI'; font-size: 12px; }
+              padding: 4px 12px; font-family: 'Segoe UI', 'Noto Sans', 'Open Sans', sans-serif; font-size: 12px; }
 QPushButton:hover { background: #303030; }
 QPushButton[copied="true"] { background: #7c6ce0; border-color: #7c6ce0; color: #ffffff; }
 QScrollArea, #list { background: transparent; border: none; }

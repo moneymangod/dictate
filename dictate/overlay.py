@@ -13,7 +13,8 @@ from PySide6.QtCore import QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QImage, QPainter
 from PySide6.QtWidgets import QWidget
 
-from .target import foreground_rect
+from .session import IS_WINDOWS
+from .target import foreground_rect, linux_active_screen
 
 PALETTE = np.array([[0x6D, 0x6A, 0xF6], [0x3D, 0x8B, 0xFF], [0xA8, 0x55, 0xF7], [0x22, 0xD3, 0xC5]], np.float32) / 255  # Arch glow colors
 RED = np.array([0xFB, 0x46, 0x4C], np.float32) / 255
@@ -28,6 +29,8 @@ GLOW = 26.0  # base bloom depth in px
 
 def active_screen():
     """The screen the active window is on."""
+    if not IS_WINDOWS:
+        return linux_active_screen()
     left, top, right, bottom = foreground_rect()  # physical pixels
     cx, cy = (left + right) // 2, (top + bottom) // 2
 

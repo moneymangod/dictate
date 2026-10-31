@@ -9,12 +9,25 @@ Each recording and its transcript are sent to Groq, so you need an internet conn
 
 ## Run
 
+### Windows
+
 Double-click **`run.bat`**. The first run creates `.venv`, installs dependencies.
 Put your Groq API key in the `GROQ_API_KEY` environment variable or in `%LOCALAPPDATA%\Dictate\groq_key.txt`
 (the first launch creates that file empty if it's missing; paste the key into it and restart).
 Dictate then lives in the system tray: left-click opens the window, right-click → Quit.
 
 To have it start by itself, hidden in the tray, whenever you log in: run **`startup.bat`** (undo with `startup.bat off`).
+
+### Fedora KDE Plasma (Wayland or X11)
+
+1. Run once: `./install-linux.sh` (installs packages, lets your user read the keyboard and type), then **log out and back in**.
+2. Run **`./run.sh`**. Same API key rules as above, but the file is `~/.local/share/Dictate/groq_key.txt`.
+3. To start it at login: `./startup.sh` (undo with `./startup.sh off`).
+
+Plasma 6 uses Wayland, which blocks normal apps from watching keys or typing. So on Wayland Dictate reads the keyboard
+through `/dev/input` (evdev) and types through a virtual keyboard (`/dev/uinput`), and uses `wl-copy` / `wl-paste` for the
+clipboard. The glow and pill run through XWayland so they can sit on top. On an X11 session it uses the same code as Windows.
+If the permissions are missing, Dictate says so in the tray, and if it can't type it just copies the text: press Ctrl+V.
 
 ## How it behaves
 
@@ -26,7 +39,8 @@ To have it start by itself, hidden in the tray, whenever you log in: run **`star
 - Pasting uses the clipboard. Your previous clipboard contents are restored 250 ms later.
 - The window shows the last 20 transcriptions (kept in memory only) with Copy buttons.
 
-Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dictate\dictate.log`.
+Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dictate\dictate.log`
+(Linux: `~/.local/share/Dictate/dictate.log`).
 
 ## Develop
 
@@ -36,7 +50,13 @@ Logs (timings and character counts only, never text) go to `%LOCALAPPDATA%\Dicta
 .venv\Scripts\python.exe -m dictate             # run with a console
 ```
 
+On Linux use `.venv/bin/python` in place of `.venv\Scripts\python.exe` (the selftest needs `espeak-ng`).
+
 ## Known limitations
+
+- Linux: being in the `input` group lets your programs read all keystrokes. Wayland has no safer way to do hold-to-talk on Shift.
+- Linux: paste sends the Ctrl+V key code, so on a non-QWERTY layout (e.g. Dvorak) it may press another shortcut.
+- Linux: the glow may not show above full-screen native Wayland apps. Untested on real hardware so far; please report problems.
 
 - Windows doesn't let a normal app see keys pressed in, or paste into, apps running as administrator.
 - The mic takes ~100–150 ms to open, so a word spoken the instant you press can lose its first syllable.
