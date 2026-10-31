@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+QApplication = pytest.importorskip("PySide6.QtWidgets", reason="Qt runtime not available", exc_type=ImportError).QApplication
 
 from dictate import voicebar
 from dictate.voicebar import BARS, HIGH, LOW, VoiceBar
